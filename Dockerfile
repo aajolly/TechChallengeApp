@@ -34,5 +34,9 @@ COPY --from=build /tmp/swagger/dist ./assets/swagger
 COPY --from=build /swagger.json ./assets/swagger/swagger.json
 COPY --from=build /TechChallengeApp TechChallengeApp
 
-ENTRYPOINT [ "./TechChallengeApp" ]
-CMD ["serve"]
+ADD /setup/start.sh /
+RUN chmod +x /start.sh
+RUN apk add --no-cache bash coreutils grep sed
+
+ENTRYPOINT ["/start.sh"]
+# ENTRYPOINT [ "./TechChallengeApp" ]
