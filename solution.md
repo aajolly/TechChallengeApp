@@ -26,3 +26,8 @@
 - Save the credential file to a safe place
 - Update the AWS credentials in github secrets so that GitHub actions deploys to an ECS cluster in your AWS account.
 - Make a change to any file in the repository and commit to master, GitHub Actions will trigger and push changes to ECS.
+
+### Application URL
+Application can be accessed via this URL - http://mysta-publi-3ay3cma1rjbn-2062401908.us-west-2.elb.amazonaws.com/
+
+Please let me know when I can tear down the environment. BTW, I changed the css settings to test changes.
