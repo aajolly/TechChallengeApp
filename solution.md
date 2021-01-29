@@ -20,6 +20,7 @@
 - Infrastructure as Code (IaC) is via **CloudFormation** as it provides good integration with AWS platform and is something I'm familiar with.
 - **GitHub Actions** for Continuous Integration (CI) & Continuous Delivery (CD)
 
+### Get Started
 - To get started, run the cloudformation template available in this repository at `/setup/awsInfra.yml` in a region of your choice.
 - Create an IAM User with programmatic access and permissions mentioned earlier.
 - Save the credential file to a safe place
