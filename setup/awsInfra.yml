@@ -335,40 +335,7 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       SubnetId: !Ref PrivateSubnet2
-  # Cloud9:
-  #   Type: AWS::Cloud9::EnvironmentEC2
-  #   Properties:
-  #     AutomaticStopTimeMinutes: Integer
-  #     ConnectionType: String
-  #     Description: String
-  #     InstanceType: String #required
-  #     Name: String
-  #     OwnerArn: String
-  #     Repositories:
-  #       - Repository
-  #     SubnetId: String
-  #     Tags:
-  #       - Tag
-  # C9Role:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument: Json #required
-  #     Description: 'Cloud9 IAM Role'
-  #     ManagedPolicyArns:
-  #       - String
-  #     MaxSessionDuration: Integer
-  #     Path: /
-  #     RoleName: c9IamRole
-  #     Tags:
-  #       - Key: Name
-  #         Value: !Sub '${ProjectName}-Cloud9-IAM-Role'
-  # C9InstanceProfile:
-  #   Type: AWS::IAM::InstanceProfile
-  #   Properties:
-  #     InstanceProfileName: C9InstanceProfile
-  #     Path: /
-  #     Roles:
-  #       - !Ref C9Role
+
   # RDS PostgreSQL Resources
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -443,6 +410,10 @@ Resources:
   Cluster:
     Type: AWS::ECS::Cluster
     Properties:
+      ClusterName: !Sub '${ProjectName}-ECS-CLUSTER'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
       CapacityProviders: ['FARGATE', 'FARGATE_SPOT']
   LogGroup:
     Type: AWS::Logs::LogGroup
@@ -453,6 +424,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Access to the public facing load balancer
+      GroupName: !Sub '{ProjectName}-PublicALB-SG'
       SecurityGroupIngress:
         - CidrIp: 0.0.0.0/0
           Description: Allow from anyone on port 80
@@ -461,17 +433,18 @@ Resources:
           ToPort: 80
       VpcId: !Ref VPC
       Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-lb'
+        - Key: ProjectName
+          Value: !Sub '${ProjectName}'
 
   EnvironmentSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: 'A security group to allow your containers to talk to each other'
+      GroupName: !Sub '${ProjectName}-env-sg'
       VpcId: !Ref VPC
       Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-env'
+        - Key: ProjectName
+          Value: !Sub '${ProjectName}'
 
   EnvironmentSecurityGroupIngressFromPublicALB:
     Type: AWS::EC2::SecurityGroupIngress
@@ -574,6 +547,7 @@ Resources:
   Service:
     Type: AWS::ECS::Service
     Properties:
+      ServiceName: !Ref ServiceName
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: 2
