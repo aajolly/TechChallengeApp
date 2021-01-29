@@ -5,7 +5,7 @@
     "inferenceAccelerators": [],
     "containerDefinitions": [
         {
-            "name": "ecs-tech-challenge",
+            "name": "ecs-techchallenge-app",
             "image": "035692985790.dkr.ecr.us-west-2.amazonaws.com/tech-challenge-repo/ecs-image:00000",
             "resourceRequirements": null,
             "essential": true,
@@ -61,7 +61,7 @@
     "memory": "512",
     "cpu": "256",
     "executionRoleArn": "arn:aws:iam::035692985790:role/TechChallenge-TaskExecutionRole",
-    "family": "ecs-tech-challenge-task-def",
+    "family": "ecs-task-definition",
     "taskRoleArn": "arn:aws:iam::035692985790:role/TechChallenge-TaskRole",
     "placementConstraints": []
 }

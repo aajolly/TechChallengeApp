@@ -186,7 +186,7 @@ Resources:
       Type: String
       Value: '80'
 
-  # Networking Resources for hosting Container & Database resources
+  # Networking Resources for hosting Application resources
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -215,7 +215,6 @@ Resources:
       GatewayId: !Ref InternetGateway
   
   InternetGateway:
-    # An Internet Gateway to connect to the public internet
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
