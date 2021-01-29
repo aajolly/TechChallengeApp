@@ -1,0 +1,638 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Template to deploy initial infrastructure for Tech Challenge App'
+
+Parameters:
+# Parameters with default values to help with Infrastructure Deployment.
+  ServiceName:
+    Type: String
+    Default: ecs-techchallenge-app
+  DBInstanceID:
+    Default: TechChallengeDB
+    Description: Tech Challenge database instance
+    Type: String
+    MinLength: '1'
+    MaxLength: '63'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Must begin with a letter and must not end with a hyphen or contain two
+      consecutive hyphens.
+  DBName:
+    Default: app
+    Description: My database
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBInstanceClass:
+    Default: db.t2.micro
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  DBAllocatedStorage:
+    Default: 10
+    Description: The size of the database (GiB)
+    Type: Number
+  DBUsername:
+    NoEcho: 'true'
+    Default: 'postgres'
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Default: 'passw0rd'
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+  EngineVersion:
+    Description: 'PostgreSQL version'
+    Type: String
+    Default: '10.7'
+    AllowedValues: [9.6.1', '9.6.2', '9.6.3', '9.6.5', '9.6.6', '9.6.8', '9.6.9', '9.6.10', '9.6.11', '9.6.12', '9.6.14', '9.6.15', '9.6.16', '9.6.17', '9.6.18', '9.6.19', '10.7']
+  DBMultiAZ:
+    Description: 'Specifies if the database instance is deployed to multiple Availability Zones for HA.'
+    Type: String
+    Default: true
+    AllowedValues: [true, false]
+  ProjectName:
+    Description: 'Specify Project Name'
+    Type: String
+    Default: 'TechChallenge'
+  Path:
+    Type: String
+    Default: "*"
+    Description: A path on the public load balancer that this service should be connected to. Use * to send all load balancer traffic to this service.
+
+Resources:
+# IAM Resources
+  # ECSSLR:
+  #   Type: AWS::IAM::ServiceLinkedRole
+  #   Properties:
+  #     AWSServiceName: ecs.amazonaws.com
+  #     Description: "Role to enable Amazon ECS to manage your cluster."
+  ECSAppAutoScaleSLR:
+    Type: AWS::IAM::ServiceLinkedRole
+    Properties:
+      AWSServiceName: ecs.application-autoscaling.amazonaws.com
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      RoleName: !Sub '${ProjectName}-TaskExecutionRole'
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - 'ecr:GetAuthorizationToken'
+                - 'ecr:BatchCheckLayerAvailability'
+                - 'ecr:GetDownloadUrlForLayer'
+                - 'ecr:BatchGetImage'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+                - 'ssm:GetParameters'
+                - 'secretsmanager:GetSecretValue'
+                - 'kms:Decrypt'
+              Resource: '*'
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      RoleName: !Sub '${ProjectName}-TaskRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonRDSReadOnlyAccess'
+    
+  # Parameters for storing environment variables
+  SSMDBPWD:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_DBPASSWORD
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: !Ref DBPassword
+  SSMDBUSER:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_DBUSER
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: !Ref DBUsername
+  SSMDBPORT:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_DBPORT
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: '5432'
+  SSMDBHOST:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_DBHOST
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: !GetAtt AppDB.Endpoint.Address
+  SSMDBNAME:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_DBNAME
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: !Ref DBName
+  SSMLISTENHOST:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_LISTENHOST
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: '0.0.0.0'
+  SSMLISTENPORT:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: 'Database Password'
+      Name: VTT_LISTENPORT
+      Tags:
+        ProjectName: !Sub '${ProjectName}'
+      Type: String
+      Value: '80'
+
+  # Networking Resources for hosting Container & Database resources
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-VPC'
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-RouteTable'
+  
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  InternetGateway:
+    # An Internet Gateway to connect to the public internet
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-IGW'
+  
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+  
+  PublicSubnet1:
+    # Public subnet 1 for resources that can access the internet
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-Subnet-pub0'
+  
+  PublicSubnet2:
+    # Public subnet 2 for resources that can access the internet
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-Subnet-pub1'
+  
+  PrivateSubnet1:
+    # Private subnet 1 for resources with no internet access
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.2.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-Subnet-priv0'
+  
+  PrivateSubnet2:
+    # Private subnet 2 for resources with no internet access
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.3.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-Subnet-priv1'
+  
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+  NatGatewayOneAttachment:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+        Domain: vpc
+  NatGatewayTwoAttachment:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+        Domain: vpc
+  NatGatewayOne:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayOneAttachment.AllocationId
+      SubnetId: !Ref PublicSubnet1
+  NatGatewayTwo:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayTwoAttachment.AllocationId
+      SubnetId: !Ref PublicSubnet2
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'VPC'
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayOne
+  PrivateRouteTableOneAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'VPC'
+  PrivateRouteTwo:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayTwo
+  PrivateRouteTableTwoAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+  # Cloud9:
+  #   Type: AWS::Cloud9::EnvironmentEC2
+  #   Properties:
+  #     AutomaticStopTimeMinutes: Integer
+  #     ConnectionType: String
+  #     Description: String
+  #     InstanceType: String #required
+  #     Name: String
+  #     OwnerArn: String
+  #     Repositories:
+  #       - Repository
+  #     SubnetId: String
+  #     Tags:
+  #       - Tag
+  # C9Role:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument: Json #required
+  #     Description: 'Cloud9 IAM Role'
+  #     ManagedPolicyArns:
+  #       - String
+  #     MaxSessionDuration: Integer
+  #     Path: /
+  #     RoleName: c9IamRole
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub '${ProjectName}-Cloud9-IAM-Role'
+  # C9InstanceProfile:
+  #   Type: AWS::IAM::InstanceProfile
+  #   Properties:
+  #     InstanceProfileName: C9InstanceProfile
+  #     Path: /
+  #     Roles:
+  #       - !Ref C9Role
+  # RDS PostgreSQL Resources
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: 'RDS Subnet Group for Tech Challenge App'
+      DBSubnetGroupName: !Sub '${ProjectName}-DBSubnetGroup'
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-DBSubnetGroup'
+  EC2PrefixList:
+    Type: AWS::EC2::PrefixList
+    Properties:
+      AddressFamily: 'IPv4'
+      Entries:
+        - Cidr: "10.0.2.0/24"
+          Description: "VPC Private Subnet1"
+        - Cidr: "10.0.3.0/24"
+          Description: "VPC Private Subnet2"
+      MaxEntries: 10
+      PrefixListName: !Sub '${ProjectName}-PrefixList'
+      Tags:
+        - Key: ProjectName
+          Value: !Sub '${ProjectName}'
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: 'Security Group for Database Tier'
+      GroupName: !Sub ${ProjectName}-DBSecGrp
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          SourcePrefixListId: !Ref EC2PrefixList
+      Tags:
+        - Key: ProjectName
+          Value: !Sub '${ProjectName}'
+  AppDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Ref DBInstanceID
+      DBName: !Ref DBName
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: 'postgres'
+      EngineVersion: !Ref EngineVersion
+      MasterUserPassword: !Ref DBPassword
+      MasterUsername: !Ref DBUsername
+      MultiAZ: !Ref DBMultiAZ
+      Port: 5432
+      StorageEncrypted: true
+      StorageType: 'gp2'
+      VPCSecurityGroups:
+        - 
+          !GetAtt DBSecurityGroup.GroupId
+      Tags:
+        - Key: ProjectName
+          Value: !Sub '${ProjectName}'
+# ECS Resources
+  ECRRepository: 
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: "tech-challenge-repo"
+      ImageScanningConfiguration: 
+        scanOnPush: "true"
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      CapacityProviders: ['FARGATE', 'FARGATE_SPOT']
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '${ProjectName}-TechChallengeApp'
+      RetentionInDays: 30
+  PublicLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the public facing load balancer
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow from anyone on port 80
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-lb'
+
+  EnvironmentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'A security group to allow your containers to talk to each other'
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-env'
+
+  EnvironmentSecurityGroupIngressFromPublicALB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from the public ALB
+      GroupId: !Ref EnvironmentSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref PublicLoadBalancerSecurityGroup
+
+  EnvironmentSecurityGroupIngressFromSelf:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from other containers in the same security group
+      GroupId: !Ref EnvironmentSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref EnvironmentSecurityGroup
+
+  PublicLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups: [ !GetAtt PublicLoadBalancerSecurityGroup.GroupId ]
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Type: application
+  DefaultHTTPTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60
+      TargetType: ip
+      VpcId: !Ref VPC
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref DefaultHTTPTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref PublicLoadBalancer
+      Port: 80
+      Protocol: HTTP
+  HTTPListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref DefaultHTTPTargetGroup
+          Type: 'forward'
+      Conditions:
+        - Field: path-pattern
+          Values: [!Ref 'Path']
+      ListenerArn: !Ref HTTPListener
+      Priority: 1
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: 'ecs-task-definition'
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: nginx
+          PortMappings:
+            - ContainerPort: 80
+          Environment:
+            - Name: VTT_DBUSER
+              Value: !Ref DBUsername
+            - Name: VTT_DBNAME
+              Value: app
+            - Name: VTT_DBPORT
+              Value: 5432
+            - Name: VTT_DBHOST
+              Value: !GetAtt AppDB.Endpoint.Address
+            - Name: VTT_LISTENHOST
+              Value: '0.0.0.0'
+            - Name: VTT_LISTENPORT
+              Value: 80
+          Secrets:
+            - Name: VTT_DBPASSWORD
+              ValueFrom: !Ref SSMDBPWD
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: stca
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 2
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      PropagateTags: SERVICE
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+          SecurityGroups:
+            - !Ref EnvironmentSecurityGroup
+      HealthCheckGracePeriodSeconds: 30
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: 80
+          TargetGroupArn: !Ref DefaultHTTPTargetGroup
+  # Auto Scaling of Containers
+  AutoScalingTarget:
+    DependsOn: ECSAppAutoScaleSLR
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: 2
+      MaxCapacity: 5
+      ResourceId: !Join ['/', [service, !Ref Cluster, !GetAtt Service.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref ServiceName, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10 
+        TargetValue: 75
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+
+Outputs:
+  VpcId:
+    Value: !Ref VPC
+  PublicSubnets:
+    Value: !Join [ ',', [ !Ref PublicSubnet1, !Ref PublicSubnet2, ] ]
+  PrivateSubnets:
+    Value: !Join [ ',', [ !Ref PrivateSubnet1, !Ref PrivateSubnet2, ] ]
+  DBEndpoint:
+    Value: !GetAtt AppDB.Endpoint.Address
+  ClusterId:
+    Value: !Ref Cluster
+  PublicLoadBalancerDNSName:
+    Value: !GetAtt PublicLoadBalancer.DNSName

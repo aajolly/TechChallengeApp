@@ -53,8 +53,9 @@
                   "awslogs-group": "TechChallenge-TechChallengeApp",
                   "awslogs-region": "us-west-2",
                   "awslogs-stream-prefix": "stca"
-        },
-    ],
+        }
+            }
+    }],
     "volumes": [],
     "networkMode": "awsvpc",
     "memory": "512",
