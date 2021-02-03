@@ -5,7 +5,7 @@
 
 ### Pre-requisites
 - AWS Account for deploying infrastructure
-- AWS IAM User with the following attributes: 
+- AWS IAM User with the following attributes (created as part of cloudformation template)
   - **Permissions**: `AmazonEC2ContainerRegistryFullAccess` & `AmazonECS_FullAccess`
   - **Access**: Programmatic Only
 
@@ -22,7 +22,7 @@
 
 ### Get Started
 - To get started, run the cloudformation template available in this repository at `/setup/awsInfra.yml` in a region of your choice.
-- Create an IAM User with programmatic access and permissions mentioned earlier.
+- Create access key for IAM user (githubUser) and store it in a safe place.
 - Save the credential file to a safe place
 - Update the AWS credentials in github secrets so that GitHub actions deploys to an ECS cluster in your AWS account.
 - Make a change to any file in the repository and commit to master, GitHub Actions will trigger and push changes to ECS.

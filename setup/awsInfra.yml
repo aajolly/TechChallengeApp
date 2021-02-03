@@ -87,10 +87,7 @@ Resources:
         - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
       Path: /
       UserName: githubUser
-  GitHubUserAccessKey:
-    Type: AWS::IAM::AccessKey
-    Properties:
-      UserName: githubUser
+
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -620,7 +617,3 @@ Outputs:
     Value: !Ref Cluster
   PublicLoadBalancerDNSName:
     Value: !GetAtt PublicLoadBalancer.DNSName
-  GitHubUserAccessKeyID:
-    Value: !Ref GitHubUserAccessKey
-  GitHubUserSecretAccessKey:
-    Value: !GetAtt SecretAccessKey
