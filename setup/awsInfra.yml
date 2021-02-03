@@ -79,7 +79,18 @@ Resources:
     Type: AWS::IAM::ServiceLinkedRole
     Properties:
       AWSServiceName: ecs.application-autoscaling.amazonaws.com
-
+  GitHubIAMUser:
+    Type: AWS::IAM::User
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
+      Path: /
+      UserName: githubUser
+  GitHubUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: githubUser
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -609,3 +620,7 @@ Outputs:
     Value: !Ref Cluster
   PublicLoadBalancerDNSName:
     Value: !GetAtt PublicLoadBalancer.DNSName
+  GitHubUserAccessKeyID:
+    Value: !Ref GitHubUserAccessKey
+  GitHubUserSecretAccessKey:
+    Value: !GetAtt SecretAccessKey
